@@ -2,8 +2,8 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>專注力訓練產生器 - 鄭凱文職能治療師</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>專注力訓練產生器 - 職能治療師 鄭凱文</title>
     <!-- 載入 React 與相關套件 -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -12,24 +12,48 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Noto Sans TC', sans-serif; }
+        body { font-family: 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .preview-container {
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-origin: top center;
+        }
+
+        /* 優化 PDF 分頁邏輯，防止多餘空白頁 */
+        #printable-area { 
+            box-sizing: border-box;
+            break-after: avoid; 
+            page-break-after: avoid;
+        }
+
         @media print {
             @page { size: A4; margin: 0; }
             body { background: white; margin: 0; }
             .print-hidden { display: none !important; }
-            #printable-area { transform: none !important; width: 210mm !important; height: 296.2mm !important; margin: 0 !important; }
+            #printable-area { 
+                transform: none !important; 
+                width: 210mm !important; 
+                height: 296.5mm !important; /* 微調高度防止溢出 */
+                margin: 0 !important; 
+                overflow: hidden !important;
+            }
         }
+
+        .mobile-drawer {
+            transition: transform 0.3s ease-in-out;
+        }
+        .drawer-open { transform: translateY(0); }
+        .drawer-closed { transform: translateY(100%); }
     </style>
 </head>
-<body class="bg-slate-100 overflow-hidden">
+<body class="bg-slate-900 overflow-hidden">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // 圖示組件
         const Icon = ({ name, size = 20, className = "" }) => {
             const icons = {
                 settings: <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2zM12 15a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/>,
@@ -37,7 +61,8 @@
                 refresh: <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>,
                 chevronLeft: <path d="m15 18-6-6 6-6"/>,
                 chevronRight: <path d="m9 18 6-6-6-6"/>,
-                external: <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/>
+                external: <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/>,
+                close: <path d="M18 6 6 18M6 6l12 12"/>
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -51,10 +76,11 @@
             const [itemsPerBlock, setItemsPerBlock] = useState(9);
             const [title, setTitle] = useState("專注力訓練");
             const [subTitle, setSubTitle] = useState("根據方框的顏色，填上對應的數字");
-            const [sidebarOpen, setSidebarOpen] = useState(true);
+            const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 768);
             const [previewScale, setPreviewScale] = useState(0.65);
             const [allowDuplicate, setAllowDuplicate] = useState(false);
             const [isGenerating, setIsGenerating] = useState(false);
+            const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
             
             const [mapping, setMapping] = useState([]);
             const [questionBlocks, setQuestionBlocks] = useState([]);
@@ -71,6 +97,25 @@
                 { name: '橙色', border: '#e67e22' }, { name: '灰色', border: '#7f8c8d' },
                 { name: '嫩綠', border: '#badc58' }, { name: '深藍', border: '#2c3e50' }
             ];
+
+            useEffect(() => {
+                const handleResize = () => {
+                    const mobile = window.innerWidth <= 768;
+                    setIsMobile(mobile);
+                    if (mobile) {
+                        const padding = 32;
+                        const availableWidth = window.innerWidth - padding;
+                        const a4WidthPx = 210 * 3.78; 
+                        const autoScale = Math.min(0.42, availableWidth / a4WidthPx);
+                        setPreviewScale(autoScale);
+                    } else {
+                        setPreviewScale(0.65);
+                    }
+                };
+                window.addEventListener('resize', handleResize);
+                handleResize();
+                return () => window.removeEventListener('resize', handleResize);
+            }, []);
 
             const shuffle = (array) => {
                 const newArr = [...array];
@@ -112,7 +157,7 @@
             useEffect(() => {
                 const checkOverflow = () => {
                     if (printRef.current) {
-                        const maxHeight = 1118;
+                        const maxHeight = 1115; // 嚴格控制高度範圍
                         const currentHeight = printRef.current.scrollHeight;
                         if (currentHeight > maxHeight) {
                             if (itemsPerBlock > lastValidSettings.current.itemsPerBlock) setItemsPerBlock(lastValidSettings.current.itemsPerBlock);
@@ -134,9 +179,9 @@
                         margin: 0,
                         filename: `${title}_訓練單.pdf`,
                         image: { type: 'jpeg', quality: 1 },
-                        html2canvas: { scale: 3, useCORS: true },
+                        html2canvas: { scale: 3, useCORS: true, logging: false },
                         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                        pagebreak: { mode: ['avoid-all'] }
+                        pagebreak: { mode: ['avoid-all', 'css'] }
                     };
                     await html2pdf().set(opt).from(element).save();
                 } catch (error) {
@@ -153,105 +198,149 @@
                 </div>
             );
 
-            return (
-                <div className="h-screen bg-slate-100 flex flex-col md:flex-row font-sans overflow-hidden">
-                    {/* 設定側邊欄 */}
-                    <div className={`bg-white border-r border-slate-200 transition-all duration-300 flex flex-col shadow-2xl z-30 relative ${sidebarOpen ? 'w-full md:w-80' : 'w-0 overflow-hidden'}`}
-                         style={{ width: sidebarOpen ? '340px' : '0px' }}>
-                        <div className="p-6 flex-1 overflow-y-auto min-w-[340px]">
-                            <div className="flex items-center gap-2 text-indigo-600 mb-8">
-                                <Icon name="settings" size={24} />
-                                <h1 className="text-xl font-bold">參數設定區</h1>
-                            </div>
-                            <div className="space-y-6">
-                                <section>
-                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">標題文字</label>
-                                    <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"/>
-                                </section>
-                                <section>
-                                    <div className="flex justify-between items-center mb-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                        <span>對照數字數量 (1-9)</span>
-                                        <span className="text-indigo-600 font-bold">{numCount}</span>
-                                    </div>
-                                    <input type="range" min="1" max="9" value={numCount} onChange={(e) => setNumCount(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"/>
-                                </section>
-                                <section>
-                                    <div className="flex justify-between items-center mb-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                        <span>每題作答數量 (至多 9 個)</span>
-                                        <span className="text-indigo-600 font-bold">{itemsPerBlock}</span>
-                                    </div>
-                                    <input type="range" min="1" max="9" value={itemsPerBlock} onChange={(e) => setItemsPerBlock(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"/>
-                                </section>
-                                <section>
-                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">出題模式(顏色)</label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button onClick={() => setAllowDuplicate(false)} className={`py-2 rounded-lg border text-xs font-bold ${!allowDuplicate ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-500'}`}>不重複</button>
-                                        <button onClick={() => setAllowDuplicate(true)} className={`py-2 rounded-lg border text-xs font-bold ${allowDuplicate ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-500'}`}>隨機重複</button>
-                                    </div>
-                                </section>
-                                <section>
-                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">螢幕預覽縮放</label>
-                                    <input type="range" min="0.4" max="0.9" step="0.05" value={previewScale} onChange={(e) => setPreviewScale(parseFloat(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-400"/>
-                                </section>
-                                <div className="pt-4 space-y-3">
-                                    <button onClick={initGenerator} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-black text-white py-3.5 rounded-xl transition-all shadow-md active:scale-95 font-bold">
-                                        <Icon name="refresh" size={18} /> 重新生成內容
-                                    </button>
-                                    <button onClick={handleDownloadPDF} disabled={isGenerating} className={`w-full flex items-center justify-center gap-2 py-4 rounded-xl transition-all shadow-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 ${isGenerating && 'opacity-70'}`}>
-                                        {isGenerating ? <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"/> : <Icon name="download" size={20} />}
-                                        {isGenerating ? '正在產生檔案...' : '點擊自動下載 PDF'}
-                                    </button>
+            const SettingsContent = () => (
+                <div className="p-6 space-y-6">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-indigo-600">
+                            <Icon name="settings" size={24} />
+                            <h1 className="text-xl font-bold">參數設定</h1>
+                        </div>
+                        {isMobile && (
+                            <button onClick={() => setSidebarOpen(false)} className="p-2 bg-slate-100 rounded-full text-slate-500">
+                                <Icon name="close" />
+                            </button>
+                        )}
+                    </div>
+                    
+                    <div className="space-y-5">
+                        <section>
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">標題文字</label>
+                            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"/>
+                        </section>
+
+                        <div className="grid grid-cols-1 gap-5">
+                            <section>
+                                <div className="flex justify-between items-center mb-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                    <span>對照數字數量 ({numCount})</span>
                                 </div>
+                                <input type="range" min="1" max="9" value={numCount} onChange={(e) => setNumCount(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"/>
+                            </section>
+                            
+                            <section>
+                                <div className="flex justify-between items-center mb-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                    <span>每題數量 ({itemsPerBlock})</span>
+                                </div>
+                                <input type="range" min="1" max="9" value={itemsPerBlock} onChange={(e) => setItemsPerBlock(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"/>
+                            </section>
+                        </div>
+
+                        <section>
+                            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">重複模式</label>
+                            <div className="flex bg-slate-100 p-1 rounded-xl">
+                                <button onClick={() => setAllowDuplicate(false)} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${!allowDuplicate ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>不重複</button>
+                                <button onClick={() => setAllowDuplicate(true)} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${allowDuplicate ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500'}`}>隨機重複</button>
                             </div>
-                            <div className="mt-8 pt-6 border-t border-slate-100 text-sm text-slate-500 font-medium">
-                                設計：<a href="https://www.facebook.com/mpotkevin" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-bold inline-flex items-center gap-1">職能治療師 - 鄭凱文 <Icon name="external" size={12}/></a>
+                        </section>
+
+                        <section>
+                            <div className="flex justify-between items-center mb-1.5 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                <span>預覽縮放</span>
+                                <span>{Math.round(previewScale * 100)}%</span>
                             </div>
+                            <input type="range" min="0.2" max="1.0" step="0.05" value={previewScale} onChange={(e) => setPreviewScale(parseFloat(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-400"/>
+                        </section>
+
+                        <div className="pt-2 space-y-3">
+                            <button onClick={initGenerator} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-black text-white py-3.5 rounded-2xl transition-all shadow-md active:scale-95 font-bold">
+                                <Icon name="refresh" size={18} /> 重新生成
+                            </button>
+                            <button onClick={handleDownloadPDF} disabled={isGenerating} className={`w-full flex items-center justify-center gap-2 py-4 rounded-2xl transition-all shadow-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 ${isGenerating && 'opacity-70'}`}>
+                                {isGenerating ? <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"/> : <Icon name="download" size={20} />}
+                                {isGenerating ? '產出中...' : '下載 PDF 訓練單'}
+                            </button>
                         </div>
                     </div>
+                    
+                    <div className="pt-4 border-t border-slate-100 text-[10px] text-slate-400 font-medium text-center">
+                        設計：<a href="https://www.facebook.com/mpotkevin" target="_blank" rel="noopener noreferrer" className="text-indigo-500 hover:underline inline-flex items-center gap-1">職能治療師 鄭凱文 <Icon name="external" size={10}/></a>
+                    </div>
+                </div>
+            );
 
-                    {/* 收折按鈕 */}
-                    <button onClick={() => setSidebarOpen(!sidebarOpen)} className="fixed left-0 top-1/2 -translate-y-1/2 w-8 h-16 bg-white border border-slate-200 rounded-r-2xl shadow-xl flex items-center justify-center hover:bg-indigo-50 transition-all z-40">
-                        <Icon name={sidebarOpen ? "chevronLeft" : "chevronRight"} className="text-indigo-600" />
-                    </button>
+            return (
+                <div className="h-screen w-full bg-slate-900 flex flex-col md:flex-row font-sans overflow-hidden">
+                    
+                    {!isMobile ? (
+                        <div className={`bg-white h-full transition-all duration-300 shadow-2xl z-50 relative ${sidebarOpen ? 'w-[320px]' : 'w-0'}`}>
+                            <div className={`w-[320px] h-full overflow-y-auto overflow-x-hidden ${!sidebarOpen && 'invisible'}`}>
+                                <SettingsContent />
+                            </div>
+                            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="absolute -right-8 top-1/2 -translate-y-1/2 w-8 h-20 bg-white border border-l-0 border-slate-200 rounded-r-2xl shadow-xl flex items-center justify-center hover:bg-indigo-50 transition-all">
+                                <Icon name={sidebarOpen ? "chevronLeft" : "chevronRight"} className="text-indigo-600" />
+                            </button>
+                        </div>
+                    ) : (
+                        <div className={`fixed inset-0 z-50 transition-opacity duration-300 ${sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)}></div>
+                            <div className={`absolute bottom-0 left-0 right-0 bg-white rounded-t-[32px] mobile-drawer max-h-[90vh] overflow-y-auto ${sidebarOpen ? 'drawer-open' : 'drawer-closed'}`}>
+                                <SettingsContent />
+                            </div>
+                        </div>
+                    )}
 
-                    {/* 預覽區 */}
-                    <div className="flex-1 overflow-auto bg-slate-500/10 flex justify-center p-4 md:p-8 scrollbar-hide">
-                        <div className="origin-top transition-transform duration-300" style={{ transform: `scale(${previewScale})` }}>
-                            <div ref={printRef} id="printable-area" className="bg-white shadow-2xl w-[210mm] h-[296.2mm] p-[8mm] flex flex-col overflow-hidden" style={{ boxSizing: 'border-box' }}>
+                    <div className="flex-1 relative overflow-auto bg-slate-800 scrollbar-hide flex items-start justify-center p-4 md:p-12">
+                        <div className="preview-container" style={{ transform: `scale(${previewScale})` }}>
+                            <div ref={printRef} id="printable-area" className="bg-white shadow-[0_0_50px_rgba(0,0,0,0.5)] w-[210mm] h-[296.5mm] p-[8mm] flex flex-col overflow-hidden select-none" style={{ boxSizing: 'border-box' }}>
+                                
                                 <div className="text-center mb-4">
-                                    <h2 className="text-4xl font-black text-slate-800 tracking-[0.25em] mb-2">{title}</h2>
-                                    <p className="text-slate-400 text-sm">{subTitle}</p>
+                                    <h2 className="text-4xl font-black text-slate-800 tracking-[0.15em] mb-2">{title}</h2>
+                                    <p className="text-slate-500 text-sm font-medium">{subTitle}</p>
                                 </div>
-                                <div className="grid grid-cols-3 gap-2 py-4 border-y-2 border-slate-100 bg-slate-50/20 rounded-2xl mb-6 px-6 text-slate-700 text-sm font-bold">
-                                    <div>姓名：__________</div>
-                                    <div>日期：__________</div>
-                                    <div>時間：__________</div>
+
+                                <div className="grid grid-cols-3 gap-4 py-3 border-y-2 border-slate-100 bg-slate-50/50 rounded-2xl mb-5 px-6 text-slate-700 text-base font-bold">
+                                    <div className="flex items-end gap-1 whitespace-nowrap">姓名：<span className="flex-1 border-b-2 border-slate-300 min-w-[60px]"></span></div>
+                                    <div className="flex items-end gap-1 whitespace-nowrap">日期：<span className="flex-1 border-b-2 border-slate-300 min-w-[60px]"></span></div>
+                                    <div className="flex items-end gap-1 whitespace-nowrap">時間：<span className="flex-1 border-b-2 border-slate-300 min-w-[60px]"></span></div>
                                 </div>
-                                <div className="mb-6 p-4 bg-white rounded-3xl border-2 border-indigo-100 shadow-sm">
+
+                                <div className="mb-5 p-4 bg-white rounded-[32px] border-2 border-indigo-100 shadow-sm">
                                     <div className="grid grid-cols-5 gap-3 justify-items-center">
                                         {mapping.map((item, idx) => <TrainingBox key={idx} item={item} showNumber={true} />)}
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-4 mb-6 text-slate-100">
-                                    <div className="flex-1 border-t-2"></div>
-                                    <span className="text-[9px] tracking-widest font-bold text-slate-300 uppercase font-bold">題目區域</span>
-                                    <div className="flex-1 border-t-2"></div>
+
+                                <div className="flex items-center gap-4 mb-5">
+                                    <div className="flex-1 h-[1.5px] bg-indigo-50"></div>
+                                    <span className="text-[10px] tracking-[0.3em] font-black text-indigo-200 uppercase">QUESTIONS AREA</span>
+                                    <div className="flex-1 h-[1.5px] bg-indigo-50"></div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-x-8 gap-y-6 flex-1 items-start">
+
+                                <div className="grid grid-cols-2 gap-x-8 gap-y-6 flex-1 items-start px-2">
                                     {questionBlocks.map((block, bIdx) => (
-                                        <div key={bIdx} className="relative pt-6 p-3 border border-slate-100 rounded-3xl bg-slate-50/5">
-                                            <div className="absolute -top-3 left-4 bg-indigo-600 text-white text-[9px] px-3 py-1 rounded-full font-black shadow-sm">題目 #{bIdx + 1}</div>
+                                        <div key={bIdx} className="relative pt-6 pb-2.5 px-3 border border-slate-100 rounded-[24px] bg-slate-50/10">
+                                            <div className="absolute -top-3 left-4 bg-indigo-600 text-white text-[10px] px-4 py-1 rounded-full font-black shadow-md">題目 #{bIdx + 1}</div>
                                             <div className="grid gap-2 justify-items-center" style={{ gridTemplateColumns: `repeat(3, minmax(0, 1fr))` }}>
                                                 {block.map((item, iIdx) => <TrainingBox key={iIdx} item={item} showNumber={false} />)}
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                                <div className="mt-auto pt-4 flex justify-center text-slate-400 text-[11px] font-bold border-t border-slate-100">
-                                    <a href="https://www.facebook.com/mpotkevin" target="_blank" rel="noopener noreferrer" className="hover:text-indigo-600 transition-colors">職能治療師 - 鄭凱文 設計</a>
-                                </div>
+
+                                {/* 移除頁尾內容，保持空白 */}
+                                <div className="mt-auto h-4"></div>
                             </div>
                         </div>
+
+                        {isMobile && (
+                            <div className="fixed bottom-6 right-6 flex flex-col gap-3 z-40">
+                                <button onClick={initGenerator} className="w-14 h-14 bg-slate-800 text-white rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-transform">
+                                    <Icon name="refresh" />
+                                </button>
+                                <button onClick={() => setSidebarOpen(true)} className="w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-transform">
+                                    <Icon name="settings" />
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
